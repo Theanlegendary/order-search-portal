@@ -32,6 +32,8 @@ API_BRANCH    = os.environ.get("API_BRANCH", "MEGA,MEGA1,PRE,PNP,SVA,KAN")
 API_CLIENT_ID = os.environ.get("API_CLIENT_ID", "TMS_ANDROID")
 API_REFERER   = os.environ.get("API_REFERER", "https://opsexpress.metfone.com.kh/")
 PORTAL_PASS   = os.environ.get("SEARCH_PASSWORD", "")
+# Support multiple comma-separated access keys
+VALID_KEYS    = [k.strip() for k in PORTAL_PASS.split(",") if k.strip()] if PORTAL_PASS else []
 CACHE_TTL     = int(os.environ.get("CACHE_TTL_SEC", "300"))
 
 # ── Status labels ────────────────────────────────────────────────────────────────
@@ -828,7 +830,7 @@ button { width:100%; padding:11px; background:linear-gradient(135deg,#4f8ef7,#38
 _sessions: set = set()
 
 def _check_auth():
-    if not PORTAL_PASS:
+    if not VALID_KEYS:
         return True
     return request.cookies.get("session") in _sessions
 
@@ -843,13 +845,14 @@ def auth_page():
 def auth_submit():
     from flask import make_response, redirect
     import secrets
-    if request.form.get("pw", "") == PORTAL_PASS:
+    entered = request.form.get("pw", "").strip()
+    if entered in VALID_KEYS:
         tok = secrets.token_hex(16)
         _sessions.add(tok)
         resp = make_response(redirect("/"))
         resp.set_cookie("session", tok, max_age=86400*7, httponly=True, samesite="Lax")
         return resp
-    return _render(AUTH_TMPL, err='<p class="err">Wrong password.</p>'), 401
+    return _render(AUTH_TMPL, err='<p class="err">Invalid access key. Please try again.</p>'), 401
 
 
 @app.get("/api/manager_report_text")
