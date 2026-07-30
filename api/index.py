@@ -219,6 +219,76 @@ def do_search(q, cat, branch="", date_filter="all", sort_order="desc"):
     return df
 
 
+def generate_manager_report_text(manager_name="Tran Viet", branch_code="PNP", po_only_filter=True, date_filter="today"):
+    df = get_data()
+    if df.empty:
+        return "No data available."
+
+    po_col   = "DELIVERY POST OFFICE" if "DELIVERY POST OFFICE" in df.columns else "CURRENT POST OFFICE"
+    sc_col   = "CURRENT STATUS" if "CURRENT STATUS" in df.columns else "STATUS CODE"
+    
+    branch_prefix = branch_code.upper() if branch_code and branch_code != "ALL" else "PNP"
+    branch_df     = df[df[po_col].astype(str).str.startswith(branch_prefix)].copy()
+
+    # Filter date
+    today = (datetime.utcnow() + timedelta(hours=7)).date()
+    if date_filter == "today":
+        branch_df = branch_df[branch_df["_date_only"] == today]
+    elif date_filter == "yesterday":
+        branch_df = branch_df[branch_df["_date_only"] == (today - timedelta(days=1))]
+    elif date_filter == "last3":
+        branch_df = branch_df[branch_df["_date_only"] >= (today - timedelta(days=2))]
+    elif date_filter == "last7":
+        branch_df = branch_df[branch_df["_date_only"] >= (today - timedelta(days=6))]
+
+    # Filter PO Only if requested
+    if po_only_filter:
+        branch_df = branch_df[branch_df["_facility"] == "Post Office"]
+
+    po_stats = {}
+    for _, row in branch_df.iterrows():
+        po_code = str(row.get(po_col, "")).strip().upper()
+        if not po_code or len(po_code) < 4:
+            continue
+
+        status = str(row.get(sc_col, "")).strip().upper()
+        sc = re.search(r"(\d{3})", status)
+        sc_num = sc.group(1) if sc else ""
+
+        is_mega    = "306" in status or pd.notna(row.get("STATUS 306 AT STORE / AGENT FROM HUB (FIRST TIME)"))
+        is_success = sc_num in ("410", "201") or "GIAO THÀNH CÔNG" in status
+        is_done    = is_success or sc_num in ("520", "470", "471", "472", "480", "500", "120") or "CANCEL" in status
+        is_pending = not is_done
+
+        if po_code not in po_stats:
+            po_stats[po_code] = {"mega": 0, "pending": 0, "success": 0}
+
+        if is_mega:
+            po_stats[po_code]["mega"] += 1
+        if is_pending:
+            po_stats[po_code]["pending"] += 1
+        if is_success:
+            po_stats[po_code]["success"] += 1
+
+    po_sorted = sorted(po_stats.keys())
+    if not po_sorted:
+        return f"Dear {manager_name}\nNo orders found for branch {branch_prefix}."
+
+    lines = [f"Dear {manager_name}", "Report bill from Mega:"]
+    for po in po_sorted:
+        lines.append(f"- {po} : {po_stats[po]['mega']}")
+
+    lines.append("\nReport bill pending:")
+    for po in po_sorted:
+        lines.append(f"- {po} : {po_stats[po]['pending']}")
+
+    lines.append("\nReport bill Success:")
+    for po in po_sorted:
+        lines.append(f"- {po} : {po_stats[po]['success']}")
+
+    return "\n".join(lines)
+
+
 def make_excel_bytes(df):
     drop = {"_age_days", "_sc", "_slabel", "_facility", "_branch", "_parsed_date", "_date_only"}
     out  = df.drop(columns=[c for c in drop if c in df.columns], errors="ignore")
@@ -378,13 +448,6 @@ body { font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:var
 
 .page { max-width:1700px; margin:0 auto; padding:22px 28px; }
 
-/* Guide Box */
-.guide-box { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-bottom:18px; font-size:12.5px; }
-.guide-title { font-weight:700; color:#60a5fa; margin-bottom:8px; display:flex; align-items:center; gap:8px; cursor:pointer; }
-.guide-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin-top:8px; }
-.g-item { background:var(--s2); border:1px solid var(--border); border-radius:6px; padding:8px 12px; }
-.g-code { font-family:monospace; font-weight:700; color:#38bdf8; font-size:13px; margin-right:6px; }
-
 .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:22px; }
 .sc { background:var(--surface); border:1px solid var(--border); border-radius:10px;
   padding:14px 16px; cursor:pointer; transition:.2s; user-select:none; }
@@ -421,6 +484,8 @@ body { font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:var
 .btn-s:hover { opacity:.9; transform:translateY(-1px); }
 .btn-xl { background:rgba(34,197,94,.12); color:var(--green); border:1px solid rgba(34,197,94,.3); }
 .btn-xl:hover { background:rgba(34,197,94,.2); }
+.btn-rep { background:rgba(167,139,250,.15); color:#c084fc; border:1px solid rgba(167,139,250,.3); }
+.btn-rep:hover { background:rgba(167,139,250,.25); }
 .btn-c { background:var(--s2); color:var(--muted); border:1px solid var(--border); }
 .btn-c:hover { color:var(--text); }
 
@@ -462,6 +527,15 @@ tr:hover td { background:rgba(255,255,255,.02); }
 .pager a:hover, .pager a.active { background:var(--accent); border-color:var(--accent); color:#fff; }
 .pg-info { font-size:11px; color:var(--muted); margin-left:6px; }
 
+/* Modal */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(7,13,26,.85); z-index:1000; align-items:center; justify-content:center; }
+.modal-overlay.open { display:flex; }
+.modal-box { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:600px; max-width:92vw; padding:24px; box-shadow:0 10px 40px rgba(0,0,0,.6); }
+.modal-hdr { display:flex; align-items:center; margin-bottom:16px; font-weight:700; font-size:16px; color:#c084fc; }
+.modal-close { margin-left:auto; cursor:pointer; color:var(--muted); font-size:18px; }
+.modal-body textarea { width:100%; height:260px; background:var(--s2); border:1px solid var(--border); border-radius:6px; color:#e2e8f0; font-family:ui-monospace,monospace; font-size:12px; padding:12px; outline:none; resize:none; }
+.modal-actions { display:flex; gap:10px; margin-top:14px; justify-content:flex-end; }
+
 #ld { display:none; position:fixed; inset:0; background:rgba(7,13,26,.75);
   z-index:999; align-items:center; justify-content:center; flex-direction:column; gap:12px; }
 #ld.on { display:flex; }
@@ -479,6 +553,27 @@ tr:hover td { background:rgba(255,255,255,.02); }
 <body>
 
 <div id="ld"><div class="spin"></div><p style="font-size:13px;color:#64748b">Loading&hellip;</p></div>
+
+<!-- Report Modal -->
+<div class="modal-overlay" id="repModal">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <span>📋 Manager Report Summary</span>
+      <span class="modal-close" onclick="closeReportModal()">&times;</span>
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center">
+      <label style="font-size:12px;color:var(--muted)">Manager Name:</label>
+      <input type="text" id="mgrNameIn" value="Tran Viet" style="background:var(--s2);border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:#fff;font-size:12px;outline:none" onchange="fetchManagerReport()">
+    </div>
+    <div class="modal-body">
+      <textarea id="repText" readonly></textarea>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-c" onclick="closeReportModal()">Close</button>
+      <button type="button" class="btn btn-s" onclick="copyReportText()">📋 Copy to Clipboard</button>
+    </div>
+  </div>
+</div>
 
 <header class="hdr">
   <div style="font-size:24px">&#128666;</div>
@@ -546,6 +641,7 @@ tr:hover td { background:rgba(255,255,255,.02); }
 
       <button type="submit" class="btn btn-s">Search</button>
       <button type="button" class="btn btn-c" onclick="clearAll()">&times; Clear</button>
+      <button type="button" class="btn btn-rep" onclick="openReportModal()">📋 Manager Report</button>
       <button type="button" class="btn btn-xl" onclick="dlExcel()">&#8659; Export Excel</button>
     </div>
   </form>
@@ -560,10 +656,29 @@ tr:hover td { background:rgba(255,255,255,.02); }
 
 <script>
 var _cat="~~cat~~", _q="~~q~~", _branch="~~branch~~", _date="~~date~~", _sort="~~sort~~";
-function toggleGuide() {
-  var g = document.getElementById('guideGrid');
-  g.style.display = (g.style.display === 'none') ? 'grid' : 'none';
+
+function openReportModal() {
+  document.getElementById('repModal').classList.add('open');
+  fetchManagerReport();
 }
+function closeReportModal() {
+  document.getElementById('repModal').classList.remove('open');
+}
+function fetchManagerReport() {
+  var name = encodeURIComponent(document.getElementById('mgrNameIn').value || 'Tran Viet');
+  var b = encodeURIComponent(_branch || 'PNP');
+  var d = encodeURIComponent(_date || 'today');
+  fetch('/api/manager_report_text?name=' + name + '&branch=' + b + '&date=' + d)
+    .then(r => r.text())
+    .then(txt => { document.getElementById('repText').value = txt; });
+}
+function copyReportText() {
+  var ta = document.getElementById('repText');
+  ta.select();
+  document.execCommand('copy');
+  alert('Copied Manager Report to clipboard!');
+}
+
 function gocat(c) {
   _cat=c; document.getElementById('catIn').value=c;
   showLoading();
@@ -655,6 +770,17 @@ def auth_submit():
         resp.set_cookie("session", tok, max_age=86400*7, httponly=True, samesite="Lax")
         return resp
     return _render(AUTH_TMPL, err='<p class="err">Wrong password.</p>'), 401
+
+
+@app.get("/api/manager_report_text")
+def api_manager_report_text():
+    if not _check_auth():
+        return "Unauthorized", 401
+    mgr = request.args.get("name", "Tran Viet").strip()
+    br  = request.args.get("branch", "PNP").strip()
+    d   = request.args.get("date", "today").strip()
+    text = generate_manager_report_text(manager_name=mgr, branch_code=br, po_only_filter=True, date_filter=d)
+    return Response(text, mimetype="text/plain; charset=utf-8")
 
 
 @app.get("/")
