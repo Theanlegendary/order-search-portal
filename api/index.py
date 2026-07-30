@@ -162,7 +162,7 @@ def get_data():
         return _cache["df"]
 
 
-def do_search(q, cat, branch="", date_filter="all", sort_order="desc"):
+def do_search(q, cat, branch="", date_filter="today", sort_order="desc"):
     df = get_data()
     if df.empty:
         return df
@@ -224,11 +224,14 @@ def generate_manager_report_text(manager_name="Tran Viet", branch_code="PNP", po
     if df.empty:
         return "No data available."
 
-    po_col   = "DELIVERY POST OFFICE" if "DELIVERY POST OFFICE" in df.columns else "CURRENT POST OFFICE"
-    sc_col   = "CURRENT STATUS" if "CURRENT STATUS" in df.columns else "STATUS CODE"
+    po_col = "DELIVERY POST OFFICE" if "DELIVERY POST OFFICE" in df.columns else "CURRENT POST OFFICE"
+    sc_col = "CURRENT STATUS" if "CURRENT STATUS" in df.columns else "STATUS CODE"
     
-    branch_prefix = branch_code.upper() if branch_code and branch_code != "ALL" else "PNP"
-    branch_df     = df[df[po_col].astype(str).str.startswith(branch_prefix)].copy()
+    branch_prefix = branch_code.upper() if branch_code and branch_code != "ALL" else ""
+    branch_df     = df.copy()
+
+    if branch_prefix:
+        branch_df = branch_df[branch_df[po_col].astype(str).str.startswith(branch_prefix)]
 
     # Filter date
     today = (datetime.utcnow() + timedelta(hours=7)).date()
@@ -259,12 +262,11 @@ def generate_manager_report_text(manager_name="Tran Viet", branch_code="PNP", po
     if po_only_filter:
         branch_df = branch_df[branch_df["_facility"] == "Post Office"]
 
-    po_stats = {}
-    for _, row in branch_df.iterrows():
-        po_code = str(row.get(po_col, "")).strip().upper()
-        if not po_code or len(po_code) < 4:
-            continue
+    cnt_mega    = 0
+    cnt_pending = 0
+    cnt_success = 0
 
+    for _, row in branch_df.iterrows():
         status = str(row.get(sc_col, "")).strip().upper()
         sc = re.search(r"(\d{3})", status)
         sc_num = sc.group(1) if sc else ""
@@ -274,32 +276,20 @@ def generate_manager_report_text(manager_name="Tran Viet", branch_code="PNP", po
         is_done    = is_success or sc_num in ("520", "470", "471", "472", "480", "500", "120") or "CANCEL" in status
         is_pending = not is_done
 
-        if po_code not in po_stats:
-            po_stats[po_code] = {"mega": 0, "pending": 0, "success": 0}
+        if is_mega:    cnt_mega += 1
+        if is_pending: cnt_pending += 1
+        if is_success: cnt_success += 1
 
-        if is_mega:
-            po_stats[po_code]["mega"] += 1
-        if is_pending:
-            po_stats[po_code]["pending"] += 1
-        if is_success:
-            po_stats[po_code]["success"] += 1
-
-    po_sorted = sorted(po_stats.keys())
-    if not po_sorted:
-        return f"Dear {manager_name}\nDaily Report ({date_label}) - Branch: {branch_prefix}\nNo orders found for this search."
-
+    br_hdr = f" - Branch: {branch_prefix}" if branch_prefix else ""
     search_hdr = f" (Search: '{q}')" if q else ""
-    lines = [f"Dear {manager_name}", f"Daily Report ({date_label}) - Branch: {branch_prefix}{search_hdr}\n", "Report bill from Mega:"]
-    for po in po_sorted:
-        lines.append(f"- {po} : {po_stats[po]['mega']}")
 
-    lines.append("\nReport bill pending:")
-    for po in po_sorted:
-        lines.append(f"- {po} : {po_stats[po]['pending']}")
-
-    lines.append("\nReport bill Success:")
-    for po in po_sorted:
-        lines.append(f"- {po} : {po_stats[po]['success']}")
+    lines = [
+        f"Dear {manager_name}",
+        f"Daily Report ({date_label}){br_hdr}{search_hdr}\n",
+        f"Report bill from Mega: {cnt_mega}",
+        f"Report bill pending: {cnt_pending}",
+        f"Report bill Success: {cnt_success}"
+    ]
 
     return "\n".join(lines)
 
@@ -343,7 +333,7 @@ def _render(tmpl, **kw):
 
 PAGE_SIZE = 250
 
-def _build_table(df, page=1, cat="all", branch="", date_filter="all", sort_order="desc"):
+def _build_table(df, page=1, cat="all", branch="", date_filter="today", sort_order="desc"):
     if df.empty:
         return (
             '<div class="empty">'
@@ -545,10 +535,10 @@ tr:hover td { background:rgba(255,255,255,.02); }
 /* Modal */
 .modal-overlay { display:none; position:fixed; inset:0; background:rgba(7,13,26,.85); z-index:1000; align-items:center; justify-content:center; }
 .modal-overlay.open { display:flex; }
-.modal-box { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:600px; max-width:92vw; padding:24px; box-shadow:0 10px 40px rgba(0,0,0,.6); }
+.modal-box { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:500px; max-width:92vw; padding:24px; box-shadow:0 10px 40px rgba(0,0,0,.6); }
 .modal-hdr { display:flex; align-items:center; margin-bottom:16px; font-weight:700; font-size:16px; color:#c084fc; }
 .modal-close { margin-left:auto; cursor:pointer; color:var(--muted); font-size:18px; }
-.modal-body textarea { width:100%; height:280px; background:var(--s2); border:1px solid var(--border); border-radius:6px; color:#e2e8f0; font-family:ui-monospace,monospace; font-size:12px; padding:12px; outline:none; resize:none; }
+.modal-body textarea { width:100%; height:200px; background:var(--s2); border:1px solid var(--border); border-radius:6px; color:#e2e8f0; font-family:ui-monospace,monospace; font-size:13px; padding:14px; outline:none; resize:none; line-height:1.6; }
 .modal-actions { display:flex; gap:10px; margin-top:14px; justify-content:flex-end; }
 
 #ld { display:none; position:fixed; inset:0; background:rgba(7,13,26,.75);
@@ -573,7 +563,7 @@ tr:hover td { background:rgba(255,255,255,.02); }
 <div class="modal-overlay" id="repModal">
   <div class="modal-box">
     <div class="modal-hdr">
-      <span>📋 Daily Manager Report Summary</span>
+      <span>📋 Daily Manager Summary Report</span>
       <span class="modal-close" onclick="closeReportModal()">&times;</span>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center">
