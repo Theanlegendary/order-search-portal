@@ -219,7 +219,7 @@ def do_search(q, cat, branch="", date_filter="all", sort_order="desc"):
     return df
 
 
-def generate_manager_report_text(manager_name="Tran Viet", branch_code="PNP", po_only_filter=True, date_filter="today"):
+def generate_manager_report_text(manager_name="Tran Viet", branch_code="PNP", po_only_filter=True, date_filter="today", q=""):
     df = get_data()
     if df.empty:
         return "No data available."
@@ -233,13 +233,27 @@ def generate_manager_report_text(manager_name="Tran Viet", branch_code="PNP", po
     # Filter date
     today = (datetime.utcnow() + timedelta(hours=7)).date()
     if date_filter == "today":
-        branch_df = branch_df[branch_df["_date_only"] == today]
+        branch_df  = branch_df[branch_df["_date_only"] == today]
+        date_label = today.strftime("%d/%m/%Y")
     elif date_filter == "yesterday":
-        branch_df = branch_df[branch_df["_date_only"] == (today - timedelta(days=1))]
+        branch_df  = branch_df[branch_df["_date_only"] == (today - timedelta(days=1))]
+        date_label = (today - timedelta(days=1)).strftime("%d/%m/%Y")
     elif date_filter == "last3":
-        branch_df = branch_df[branch_df["_date_only"] >= (today - timedelta(days=2))]
+        branch_df  = branch_df[branch_df["_date_only"] >= (today - timedelta(days=2))]
+        date_label = "Last 3 Days"
     elif date_filter == "last7":
-        branch_df = branch_df[branch_df["_date_only"] >= (today - timedelta(days=6))]
+        branch_df  = branch_df[branch_df["_date_only"] >= (today - timedelta(days=6))]
+        date_label = "Last 7 Days"
+    else:
+        date_label = "All 14 Days"
+
+    # Filter Keyword Search if requested
+    q = q.strip()
+    if q:
+        mask = branch_df.astype(str).apply(
+            lambda row: row.str.contains(q, case=False, na=False, regex=False).any(), axis=1
+        )
+        branch_df = branch_df[mask]
 
     # Filter PO Only if requested
     if po_only_filter:
@@ -272,9 +286,10 @@ def generate_manager_report_text(manager_name="Tran Viet", branch_code="PNP", po
 
     po_sorted = sorted(po_stats.keys())
     if not po_sorted:
-        return f"Dear {manager_name}\nNo orders found for branch {branch_prefix}."
+        return f"Dear {manager_name}\nDaily Report ({date_label}) - Branch: {branch_prefix}\nNo orders found for this search."
 
-    lines = [f"Dear {manager_name}", "Report bill from Mega:"]
+    search_hdr = f" (Search: '{q}')" if q else ""
+    lines = [f"Dear {manager_name}", f"Daily Report ({date_label}) - Branch: {branch_prefix}{search_hdr}\n", "Report bill from Mega:"]
     for po in po_sorted:
         lines.append(f"- {po} : {po_stats[po]['mega']}")
 
@@ -533,7 +548,7 @@ tr:hover td { background:rgba(255,255,255,.02); }
 .modal-box { background:var(--surface); border:1px solid var(--border); border-radius:12px; width:600px; max-width:92vw; padding:24px; box-shadow:0 10px 40px rgba(0,0,0,.6); }
 .modal-hdr { display:flex; align-items:center; margin-bottom:16px; font-weight:700; font-size:16px; color:#c084fc; }
 .modal-close { margin-left:auto; cursor:pointer; color:var(--muted); font-size:18px; }
-.modal-body textarea { width:100%; height:260px; background:var(--s2); border:1px solid var(--border); border-radius:6px; color:#e2e8f0; font-family:ui-monospace,monospace; font-size:12px; padding:12px; outline:none; resize:none; }
+.modal-body textarea { width:100%; height:280px; background:var(--s2); border:1px solid var(--border); border-radius:6px; color:#e2e8f0; font-family:ui-monospace,monospace; font-size:12px; padding:12px; outline:none; resize:none; }
 .modal-actions { display:flex; gap:10px; margin-top:14px; justify-content:flex-end; }
 
 #ld { display:none; position:fixed; inset:0; background:rgba(7,13,26,.75);
@@ -558,7 +573,7 @@ tr:hover td { background:rgba(255,255,255,.02); }
 <div class="modal-overlay" id="repModal">
   <div class="modal-box">
     <div class="modal-hdr">
-      <span>📋 Manager Report Summary</span>
+      <span>📋 Daily Manager Report Summary</span>
       <span class="modal-close" onclick="closeReportModal()">&times;</span>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center">
@@ -668,7 +683,8 @@ function fetchManagerReport() {
   var name = encodeURIComponent(document.getElementById('mgrNameIn').value || 'Tran Viet');
   var b = encodeURIComponent(_branch || 'PNP');
   var d = encodeURIComponent(_date || 'today');
-  fetch('/api/manager_report_text?name=' + name + '&branch=' + b + '&date=' + d)
+  var q = encodeURIComponent(_q || '');
+  fetch('/api/manager_report_text?name=' + name + '&branch=' + b + '&date=' + d + '&q=' + q)
     .then(r => r.text())
     .then(txt => { document.getElementById('repText').value = txt; });
 }
@@ -779,7 +795,8 @@ def api_manager_report_text():
     mgr = request.args.get("name", "Tran Viet").strip()
     br  = request.args.get("branch", "PNP").strip()
     d   = request.args.get("date", "today").strip()
-    text = generate_manager_report_text(manager_name=mgr, branch_code=br, po_only_filter=True, date_filter=d)
+    q   = request.args.get("q", "").strip()
+    text = generate_manager_report_text(manager_name=mgr, branch_code=br, po_only_filter=True, date_filter=d, q=q)
     return Response(text, mimetype="text/plain; charset=utf-8")
 
 
@@ -792,7 +809,7 @@ def index():
     q           = request.args.get("q", "").strip()
     cat         = request.args.get("cat", "active")
     branch      = request.args.get("branch", "ALL").strip().upper()
-    date_filter = request.args.get("date", "all").strip()
+    date_filter = request.args.get("date", "today").strip()
     sort_order  = request.args.get("sort", "desc").strip().lower()
     page        = max(1, int(request.args.get("page", 1)))
 
@@ -844,11 +861,11 @@ def index():
 
     # Build date options
     d_opts = [
-        ('<option value="all"' + (' selected' if date_filter == 'all' else '') + '>📅 All 14 Days</option>'),
         ('<option value="today"' + (' selected' if date_filter == 'today' else '') + '>📅 Today (' + today.strftime("%d/%m") + ')</option>'),
         ('<option value="yesterday"' + (' selected' if date_filter == 'yesterday' else '') + '>📅 Yesterday (' + (today - timedelta(days=1)).strftime("%d/%m") + ')</option>'),
         ('<option value="last3"' + (' selected' if date_filter == 'last3' else '') + '>📅 Last 3 Days</option>'),
         ('<option value="last7"' + (' selected' if date_filter == 'last7' else '') + '>📅 Last 7 Days</option>'),
+        ('<option value="all"' + (' selected' if date_filter == 'all' else '') + '>📅 All 14 Days</option>'),
     ]
 
     # Add available dates dynamically
@@ -916,7 +933,7 @@ def api_export():
     q           = request.args.get("q", "").strip()
     cat         = request.args.get("cat", "active")
     branch      = request.args.get("branch", "ALL").strip().upper()
-    date_filter = request.args.get("date", "all").strip()
+    date_filter = request.args.get("date", "today").strip()
     sort_order  = request.args.get("sort", "desc").strip().lower()
     try:
         df = do_search(q, cat, branch, date_filter, sort_order)
