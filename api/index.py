@@ -206,6 +206,12 @@ def do_search(q, cat, branch="", date_filter="all", sort_order="desc"):
         df = df[df["_sc"].isin({"210", "230", "300", "302", "310", "311"})]
     elif cat == "branch":
         df = df[df["_sc"].isin({"306", "309", "400", "472", "480"})]
+    elif cat == "shipped":
+        df = df[df["_sc"].isin({"410"})]
+    elif cat == "cancelled":
+        df = df[df["_sc"].isin({"201"})]
+    elif cat == "returned":
+        df = df[df["_sc"].isin({"500", "510", "511", "512", "520", "540"})]
     elif cat == "all":
         pass
 
@@ -524,6 +530,10 @@ tr:hover td { background:rgba(255,255,255,.02); }
     <button type="button" class="btn ~~f_delivery~~" onclick="gocat('delivery')" style="padding:7px 14px;font-size:12px">&#128666; Under Delivery</button>
     <button type="button" class="btn ~~f_transit~~" onclick="gocat('transit')" style="padding:7px 14px;font-size:12px">&#8635; Transit</button>
     <button type="button" class="btn ~~f_branch~~" onclick="gocat('branch')" style="padding:7px 14px;font-size:12px">&#127963; At Branch</button>
+    <button type="button" class="btn ~~f_shipped~~" onclick="gocat('shipped')" style="padding:7px 14px;font-size:12px">&#10004; Shipped</button>
+    <button type="button" class="btn ~~f_cancelled~~" onclick="gocat('cancelled')" style="padding:7px 14px;font-size:12px">&#10060; Cancelled</button>
+    <button type="button" class="btn ~~f_returned~~" onclick="gocat('returned')" style="padding:7px 14px;font-size:12px">&#8617; Returned</button>
+    <button type="button" class="btn ~~f_all_status~~" onclick="gocat('all')" style="padding:7px 14px;font-size:12px">&#128203; All Status</button>
   </div>
 
   <form method="get" action="/" onsubmit="showLoading()">
@@ -779,6 +789,10 @@ def index():
         f_delivery=("btn-s" if cat == "delivery" else "btn-c"),
         f_transit=("btn-s" if cat == "transit" else "btn-c"),
         f_branch=("btn-s" if cat == "branch" else "btn-c"),
+        f_shipped=("btn-s" if cat == "shipped" else "btn-c"),
+        f_cancelled=("btn-s" if cat == "cancelled" else "btn-c"),
+        f_returned=("btn-s" if cat == "returned" else "btn-c"),
+        f_all_status=("btn-s" if cat == "all" else "btn-c"),
         branch_options=branch_options,
         date_options=date_options,
         sort_desc_sel=('selected' if sort_order == 'desc' else ''),
