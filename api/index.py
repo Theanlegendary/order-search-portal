@@ -494,22 +494,6 @@ tr:hover td { background:rgba(255,255,255,.02); }
 
 <div class="page">
 
-  <!-- Manager Guide -->
-  <div class="guide-box">
-    <div class="guide-title" onclick="toggleGuide()">
-      <span>📖 Manager Cheat Sheet & Status Guide</span>
-      <span style="font-size:11px;color:#64748b;margin-left:auto">(Click to toggle explanation)</span>
-    </div>
-    <div class="guide-grid" id="guideGrid">
-      <div class="g-item"><span class="g-code">410</span><strong>Completed / Delivered</strong>: Package successfully delivered to customer.</div>
-      <div class="g-item"><span class="g-code">306</span><strong>At Branch / PO</strong>: Package arrived at local post office branch.</div>
-      <div class="g-item"><span class="g-code">401</span><strong>Out for Delivery</strong>: Driver is actively delivering package.</div>
-      <div class="g-item"><span class="g-code">420</span><strong>Notify Customer</strong>: Issue contacting customer (no answer / wrong phone).</div>
-      <div class="g-item"><span class="g-code">520</span><strong>Return Completed</strong>: Package returned back to sender/seller.</div>
-      <div class="g-item"><span class="g-code">PO Only</span><strong>Post Office Only</strong>: Sitting in official POs (excludes Agents & Showrooms).</div>
-    </div>
-  </div>
-
   <div class="stats">
     <div class="sc sc-active ~~a_active~~" onclick="gocat('active')">
       <div class="n">~~cnt_active~~</div><div class="l">&#128230; Active Pending</div>
