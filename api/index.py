@@ -198,6 +198,14 @@ def do_search(q, cat, branch="", date_filter="all", sort_order="desc"):
         df = df[df["_sc"].isin(DONE_CODES)]
     elif cat == "cancel":
         df = df[df["_sc"].isin(CANCEL_CODES)]
+    elif cat == "pickup":
+        df = df[df["_sc"].isin({"110", "120", "200"})]
+    elif cat == "delivery":
+        df = df[df["_sc"].isin({"401", "402", "420", "430", "460", "400"})]
+    elif cat == "transit":
+        df = df[df["_sc"].isin({"210", "230", "300", "302", "310", "311"})]
+    elif cat == "branch":
+        df = df[df["_sc"].isin({"306", "309", "400", "472", "480"})]
     elif cat == "all":
         pass
 
@@ -509,6 +517,15 @@ tr:hover td { background:rgba(255,255,255,.02); }
     </div>
   </div>
 
+  <!-- Stage filter buttons -->
+  <div class="srow" style="gap:8px;margin-bottom:14px">
+    <span style="font-size:11px;color:var(--muted);font-weight:600;padding-right:4px">Stage:</span>
+    <button type="button" class="btn ~~f_pickup~~" onclick="gocat('pickup')" style="padding:7px 14px;font-size:12px">&#128230; Pickup</button>
+    <button type="button" class="btn ~~f_delivery~~" onclick="gocat('delivery')" style="padding:7px 14px;font-size:12px">&#128666; Under Delivery</button>
+    <button type="button" class="btn ~~f_transit~~" onclick="gocat('transit')" style="padding:7px 14px;font-size:12px">&#8635; Transit</button>
+    <button type="button" class="btn ~~f_branch~~" onclick="gocat('branch')" style="padding:7px 14px;font-size:12px">&#127963; At Branch</button>
+  </div>
+
   <form method="get" action="/" onsubmit="showLoading()">
     <input type="hidden" name="cat" id="catIn" value="~~cat~~">
     <div class="srow">
@@ -758,6 +775,10 @@ def index():
         a_active=ac("active"), a_po_only=ac("po_only"),
         a_delayed=ac("delayed"), a_missing=ac("missing"),
         a_issue=ac("issue"), a_done=ac("done"), a_cancel=ac("cancel"), a_all=ac("all"),
+        f_pickup=("btn-s" if cat == "pickup" else "btn-c"),
+        f_delivery=("btn-s" if cat == "delivery" else "btn-c"),
+        f_transit=("btn-s" if cat == "transit" else "btn-c"),
+        f_branch=("btn-s" if cat == "branch" else "btn-c"),
         branch_options=branch_options,
         date_options=date_options,
         sort_desc_sel=('selected' if sort_order == 'desc' else ''),
