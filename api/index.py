@@ -137,6 +137,7 @@ def _enrich(df):
         df["_sc"]         = ""
         df["_slabel"]     = ""
 
+    # Count strictly using CURRENT POST OFFICE
     po_col = "CURRENT POST OFFICE" if "CURRENT POST OFFICE" in df.columns else ("DELIVERY POST OFFICE" if "DELIVERY POST OFFICE" in df.columns else "RECEIVE POST OFFICE")
     if po_col in df.columns:
         df["_facility"] = df[po_col].apply(_get_facility_type)
@@ -167,7 +168,7 @@ def do_search(q, cat, branch="", date_filter="today", sort_order="desc"):
     if df.empty:
         return df
 
-    # Branch filter
+    # Branch filter based on CURRENT POST OFFICE
     if branch and branch != "ALL":
         df = df[df["_branch"] == branch.upper()]
 
@@ -224,7 +225,8 @@ def generate_manager_report_text(manager_name="Tran Viet", branch_code="PNP", po
     if df.empty:
         return "No data available."
 
-    po_col = "DELIVERY POST OFFICE" if "DELIVERY POST OFFICE" in df.columns else "CURRENT POST OFFICE"
+    # Use CURRENT POST OFFICE strictly as requested by user
+    po_col = "CURRENT POST OFFICE" if "CURRENT POST OFFICE" in df.columns else ("DELIVERY POST OFFICE" if "DELIVERY POST OFFICE" in df.columns else "RECEIVE POST OFFICE")
     sc_col = "CURRENT STATUS" if "CURRENT STATUS" in df.columns else "STATUS CODE"
     
     branch_prefix = branch_code.upper() if branch_code and branch_code != "ALL" else ""
@@ -358,9 +360,9 @@ def _build_table(df, page=1, cat="all", branch="", date_filter="today", sort_ord
         ("SENDER PHONE",         "Sender Phone"),
         ("RECEIVER",             "Receiver"),
         ("RECEIVER PHONE",       "Receiver Phone"),
-        ("RECEIVE POST OFFICE",  "Origin PO"),
-        ("DELIVERY POST OFFICE", "Dest PO"),
         ("CURRENT POST OFFICE",  "Current PO"),
+        ("DELIVERY POST OFFICE", "Dest PO"),
+        ("RECEIVE POST OFFICE",  "Origin PO"),
         ("_facility",            "Facility"),
         ("CURRENT TIME",         "Last Update"),
         ("_age_days",            "Age"),
