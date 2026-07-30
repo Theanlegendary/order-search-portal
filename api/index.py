@@ -14,6 +14,7 @@ Vercel ENV variables required:
 import io
 import json
 import os
+import re
 import time
 import threading
 from datetime import datetime, timedelta
@@ -46,8 +47,18 @@ STATUS_LABELS = {
     "512":"Return Store",     "201":"Delivered",        "410":"Completed",
     "520":"Return Completed",
 }
-DONE_CODES  = {"201", "410", "520"}
-ISSUE_CODES = {"420", "460", "472", "480", "500"}
+DONE_CODES   = {"201", "410"}
+CANCEL_CODES = {"520", "470", "471", "472", "480", "500", "510", "511", "512", "120", "460"}
+ISSUE_CODES  = {"420", "460", "472", "480", "500"}
+
+BRANCH_NAME_MAP = {
+    "PNP": "Phnom Penh", "PRE": "Prey Veng", "SVA": "Svay Rieng", "KAN": "Kandal",
+    "KAM": "Kampot", "KOH": "Koh Kong", "SIH": "Preah Sihanouk", "SPE": "Kampong Speu",
+    "TAK": "Takeo", "BAN": "Banteay Meanchey", "BAT": "Battambang", "CHH": "Kampong Chhnang",
+    "PUR": "Pursat", "SIE": "Siem Reap", "PRH": "Preah Vihear", "ODD": "Oddar Meanchey",
+    "THO": "Kampong Thom", "CHA": "Kampong Cham", "KRA": "Kratie", "TBK": "Tboung Khmum",
+    "ROT": "Ratanak Kiri", "MON": "Mondul Kiri", "STU": "Stung Treng", "KEP": "Kep", "PAI": "Pailin"
+}
 
 # ── In-memory cache ──────────────────────────────────────────────────────────────
 _cache = {"df": pd.DataFrame(), "mtime": 0.0, "lock": threading.Lock()}
@@ -85,6 +96,23 @@ def _download_df():
     raise RuntimeError("No Excel data in API response")
 
 
+def _get_facility_type(code):
+    code = str(code or "").strip().upper()
+    m = re.search(r"^[A-Z]{3}([PSA])\d+", code)
+    if m:
+        letter = m.group(1)
+        if letter == "P": return "Post Office"
+        if letter == "S": return "Showroom"
+        if letter == "A": return "Agent"
+    return "Other"
+
+
+def _get_branch_code(code):
+    code = str(code or "").strip().upper()
+    m = re.match(r"^([A-Z]{3})", code)
+    return m.group(1) if m else "OTHER"
+
+
 def _enrich(df):
     now = datetime.utcnow() + timedelta(hours=7)
     date_col = "CREATED DATE" if "CREATED DATE" in df.columns else "CURRENT TIME"
@@ -94,6 +122,7 @@ def _enrich(df):
         df["_age_days"] = ((now - parsed).dt.total_seconds() / 86400).fillna(0).clip(lower=0)
     else:
         df["_age_days"] = 0.0
+
     if "CURRENT STATUS" in df.columns:
         sc = df["CURRENT STATUS"].astype(str).str.extract(r"(\d{3})")[0]
         df["_sc"]     = sc.fillna("")
@@ -101,6 +130,15 @@ def _enrich(df):
     else:
         df["_sc"] = ""
         df["_slabel"] = ""
+
+    po_col = "CURRENT POST OFFICE" if "CURRENT POST OFFICE" in df.columns else ("DELIVERY POST OFFICE" if "DELIVERY POST OFFICE" in df.columns else "RECEIVE POST OFFICE")
+    if po_col in df.columns:
+        df["_facility"] = df[po_col].apply(_get_facility_type)
+        df["_branch"]   = df[po_col].apply(_get_branch_code)
+    else:
+        df["_facility"] = "Other"
+        df["_branch"]   = "OTHER"
+
     return df
 
 
@@ -118,34 +156,47 @@ def get_data():
         return _cache["df"]
 
 
-def do_search(q, cat):
+def do_search(q, cat, branch=""):
     df = get_data()
     if df.empty:
         return df
-    if cat != "done":
-        df = df[~df["_sc"].isin(DONE_CODES)]
+
+    # Branch filter
+    if branch and branch != "ALL":
+        df = df[df["_branch"] == branch.upper()]
+
+    # Category filters
+    if cat == "active":
+        df = df[~df["_sc"].isin(DONE_CODES | CANCEL_CODES)]
+    elif cat == "po_only":
+        # Post Office ONLY (excludes Agent and Showroom)
+        df = df[df["_facility"] == "Post Office"]
+    elif cat == "missing":
+        df = df[(df["_age_days"] > 7) & (~df["_sc"].isin(DONE_CODES))]
+    elif cat == "delayed":
+        df = df[(df["_age_days"] > 1) & (~df["_sc"].isin(DONE_CODES))]
+    elif cat == "issue":
+        df = df[df["_sc"].isin(ISSUE_CODES)]
+    elif cat == "done":
+        df = df[df["_sc"].isin(DONE_CODES)]
+    elif cat == "cancel":
+        df = df[df["_sc"].isin(CANCEL_CODES)]
+    elif cat == "all":
+        pass  # All including Done and Cancelled
+
+    # Keyword search across all columns
     q = q.strip()
     if q:
         mask = df.astype(str).apply(
             lambda row: row.str.contains(q, case=False, na=False, regex=False).any(), axis=1
         )
         df = df[mask]
-    if   cat == "missing":  df = df[df["_age_days"] > 7]
-    elif cat == "delayed":  df = df[df["_age_days"] > 1]
-    elif cat == "issue":    df = df[df["_sc"].isin(ISSUE_CODES)]
-    elif cat == "done":
-        full = get_data()
-        df   = full[full["_sc"].isin(DONE_CODES)]
-        if q:
-            mask = df.astype(str).apply(
-                lambda row: row.str.contains(q, case=False, na=False, regex=False).any(), axis=1
-            )
-            df = df[mask]
+
     return df
 
 
 def make_excel_bytes(df):
-    drop = {"_age_days", "_sc", "_slabel"}
+    drop = {"_age_days", "_sc", "_slabel", "_facility", "_branch"}
     out  = df.drop(columns=[c for c in drop if c in df.columns], errors="ignore")
     buf  = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
@@ -161,7 +212,7 @@ def make_excel_bytes(df):
 def _badge(sc):
     if sc in DONE_CODES:                                          return "done",     "&#10003;"
     if sc in ISSUE_CODES:                                         return "issue",    "&#9888;"
-    if sc in {"470","471","472","480","500","510","511","512"}:   return "return_",  "&#8617;"
+    if sc in CANCEL_CODES:                                        return "return_",  "&#8617;"
     if sc in {"401","402","420","430"}:                           return "delivery", "&#128666;"
     if sc in {"110","120","200"}:                                 return "pickup",   "&#128230;"
     if sc in {"210","230","300","302","306","309","310","311"}:   return "transit",  "&#8635;"
@@ -175,9 +226,7 @@ def _cache_info():
     return f"Stale ({age//60}m ago)", "stale"
 
 
-# ── Safe template renderer (avoids .format() conflicts with CSS braces) ──────────
 def _render(tmpl, **kw):
-    """Replace ~~KEY~~ placeholders — no conflict with CSS { } or JS { }."""
     for k, v in kw.items():
         tmpl = tmpl.replace(f"~~{k}~~", str(v))
     return tmpl
@@ -185,13 +234,13 @@ def _render(tmpl, **kw):
 
 PAGE_SIZE = 250
 
-def _build_table(df, page=1):
+def _build_table(df, page=1, cat="all", branch=""):
     if df.empty:
         return (
             '<div class="empty">'
             '<div style="font-size:48px;margin-bottom:14px">&#128269;</div>'
             '<p>No orders found.</p>'
-            '<p style="font-size:12px;color:#475569;margin-top:6px">Try a different keyword or category.</p>'
+            '<p style="font-size:12px;color:#475569;margin-top:6px">Try a different keyword, branch, or category.</p>'
             '</div>'
         ), ""
 
@@ -212,6 +261,7 @@ def _build_table(df, page=1):
         ("RECEIVE POST OFFICE",  "Origin PO"),
         ("DELIVERY POST OFFICE", "Dest PO"),
         ("CURRENT POST OFFICE",  "Current PO"),
+        ("_facility",            "Facility"),
         ("CURRENT TIME",         "Last Update"),
         ("_age_days",            "Age"),
     ]
@@ -231,6 +281,9 @@ def _build_table(df, page=1):
             if col == "_slabel":
                 label = STATUS_LABELS.get(sc, safe)
                 tds.append(f'<td><span class="badge b-{bcls}">{bico} {label}</span></td>')
+            elif col == "_facility":
+                f_color = "#38bdf8" if safe == "Post Office" else ("#f59e0b" if safe == "Agent" else "#a78bfa")
+                tds.append(f'<td><span style="color:{f_color};font-size:11px;font-weight:600">{safe}</span></td>')
             elif col == "_age_days":
                 days = int(age); hrs = int((age - days) * 24)
                 txt  = f"{days}d" if days else f"{hrs}h"
@@ -249,16 +302,15 @@ def _build_table(df, page=1):
     )
 
     q_p   = request.args.get("q", "")
-    cat_p = request.args.get("cat", "all")
     pager = []
     for p in range(1, total_pages + 1):
         cls = ' class="active"' if p == page else ""
-        pager.append(f'<a{cls} href="/?q={q_p}&cat={cat_p}&page={p}">{p}</a>')
+        pager.append(f'<a{cls} href="/?q={q_p}&cat={cat}&branch={branch}&page={p}">{p}</a>')
     pager.append(f'<span class="pg-info">Rows {start+1}&#8211;{min(start+PAGE_SIZE,total):,} of {total:,}</span>')
     return table, "".join(pager)
 
 
-# ── HTML template (uses ~~KEY~~ placeholders, NOT Python .format()) ─────────────
+# ── HTML template ─────────────────────────────────────────────────────────────────
 HTML_TMPL = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -297,18 +349,21 @@ body { font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:var
 
 .page { max-width:1700px; margin:0 auto; padding:22px 28px; }
 
-.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:22px; }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:22px; }
 .sc { background:var(--surface); border:1px solid var(--border); border-radius:10px;
-  padding:15px 18px; cursor:pointer; transition:.2s; user-select:none; }
+  padding:14px 16px; cursor:pointer; transition:.2s; user-select:none; }
 .sc:hover { border-color:var(--accent); transform:translateY(-1px); box-shadow:0 4px 20px rgba(0,0,0,.3); }
 .sc.active { border-color:var(--accent); background:rgba(79,142,247,.1); }
-.sc .n { font-size:30px; font-weight:700; line-height:1; margin-bottom:5px; }
+.sc .n { font-size:26px; font-weight:700; line-height:1; margin-bottom:5px; }
 .sc .l { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
-.sc-all .n     { color:var(--accent); }
+.sc-all .n     { color:var(--text); }
+.sc-active .n  { color:var(--accent); }
+.sc-po .n      { color:var(--a2); }
 .sc-delayed .n { color:var(--amber); }
 .sc-missing .n { color:var(--red); }
 .sc-issue .n   { color:var(--purple); }
 .sc-done .n    { color:var(--green); }
+.sc-cancel .n  { color:#f87171; }
 
 .srow { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center; }
 .sinput-wrap { flex:1; min-width:220px; position:relative; }
@@ -318,6 +373,12 @@ body { font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:var
 .sinput-wrap input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(79,142,247,.15); }
 .sinput-wrap input::placeholder { color:var(--muted); }
 .ico { position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:15px; }
+
+.bselect { background:var(--surface); border:1px solid var(--border); border-radius:6px;
+  padding:10px 14px; color:var(--text); font-size:13px; font-family:inherit; outline:none;
+  cursor:pointer; transition:.15s; }
+.bselect:focus { border-color:var(--accent); }
+
 .btn { padding:10px 18px; border:none; border-radius:6px; cursor:pointer;
   font-size:12px; font-weight:600; font-family:inherit; transition:.15s; white-space:nowrap; }
 .btn-s { background:linear-gradient(135deg,var(--accent),var(--a2)); color:#fff; }
@@ -398,8 +459,11 @@ tr:hover td { background:rgba(255,255,255,.02); }
 <div class="page">
 
   <div class="stats">
-    <div class="sc sc-all ~~a_all~~" onclick="gocat('all')">
-      <div class="n">~~cnt_all~~</div><div class="l">&#128230; Active</div>
+    <div class="sc sc-active ~~a_active~~" onclick="gocat('active')">
+      <div class="n">~~cnt_active~~</div><div class="l">&#128230; Active</div>
+    </div>
+    <div class="sc sc-po ~~a_po_only~~" onclick="gocat('po_only')">
+      <div class="n">~~cnt_po_only~~</div><div class="l">&#127963; PO Only</div>
     </div>
     <div class="sc sc-delayed ~~a_delayed~~" onclick="gocat('delayed')">
       <div class="n">~~cnt_delayed~~</div><div class="l">&#9200; Delayed &gt;1d</div>
@@ -411,7 +475,13 @@ tr:hover td { background:rgba(255,255,255,.02); }
       <div class="n">~~cnt_issue~~</div><div class="l">&#9888; Issues</div>
     </div>
     <div class="sc sc-done ~~a_done~~" onclick="gocat('done')">
-      <div class="n">~~cnt_done~~</div><div class="l">&#10003; Completed</div>
+      <div class="n">~~cnt_done~~</div><div class="l">&#10003; 410 Done</div>
+    </div>
+    <div class="sc sc-cancel ~~a_cancel~~" onclick="gocat('cancel')">
+      <div class="n">~~cnt_cancel~~</div><div class="l">&#8617; Cancel/Return</div>
+    </div>
+    <div class="sc sc-all ~~a_all~~" onclick="gocat('all')">
+      <div class="n">~~cnt_all~~</div><div class="l">&#128203; All Bills</div>
     </div>
   </div>
 
@@ -421,9 +491,14 @@ tr:hover td { background:rgba(255,255,255,.02); }
       <div class="sinput-wrap">
         <span class="ico">&#128269;</span>
         <input type="text" name="q" id="qIn" value="~~q~~"
-          placeholder="Search by order ID &bull; phone &bull; sender &bull; receiver &bull; post office &bull; note &hellip;"
+          placeholder="Search order ID &bull; phone &bull; sender &bull; receiver &bull; post office &bull; note &hellip;"
           autocomplete="off" autofocus>
       </div>
+
+      <select name="branch" id="branchSelect" class="bselect" onchange="this.form.submit(); showLoading();">
+        ~~branch_options~~
+      </select>
+
       <button type="submit" class="btn btn-s">Search</button>
       <button type="button" class="btn btn-c" onclick="clearAll()">&times; Clear</button>
       <button type="button" class="btn btn-xl" onclick="dlExcel()">&#8659; Export Excel</button>
@@ -439,21 +514,21 @@ tr:hover td { background:rgba(255,255,255,.02); }
 </div>
 
 <script>
-var _cat="~~cat~~", _q="~~q~~";
+var _cat="~~cat~~", _q="~~q~~", _branch="~~branch~~";
 function gocat(c) {
   _cat=c; document.getElementById('catIn').value=c;
   showLoading();
-  window.location='/?cat='+c+(_q?'&q='+encodeURIComponent(_q):'');
+  window.location='/?cat='+c+(_branch?'&branch='+encodeURIComponent(_branch):'')+(_q?'&q='+encodeURIComponent(_q):'');
 }
 function showLoading() { document.getElementById('ld').classList.add('on'); }
-function clearAll() { window.location='/?cat='+_cat; }
+function clearAll() { window.location='/?cat=active'; }
 function forceRefresh() {
   showLoading();
   fetch('/api/refresh',{method:'POST'}).then(function(){ window.location.reload(); });
 }
 function dlExcel() {
   showLoading();
-  var url='/api/export?cat='+_cat+(_q?'&q='+encodeURIComponent(_q):'');
+  var url='/api/export?cat='+_cat+(_branch?'&branch='+encodeURIComponent(_branch):'')+(_q?'&q='+encodeURIComponent(_q):'');
   fetch(url).then(function(r){ return r.blob(); }).then(function(b){
     var a=document.createElement('a');
     a.href=URL.createObjectURL(b);
@@ -539,51 +614,81 @@ def index():
     if not _check_auth():
         return redirect("/auth")
 
-    q    = request.args.get("q", "").strip()
-    cat  = request.args.get("cat", "all")
-    page = max(1, int(request.args.get("page", 1)))
+    q      = request.args.get("q", "").strip()
+    cat    = request.args.get("cat", "active")
+    branch = request.args.get("branch", "ALL").strip().upper()
+    page   = max(1, int(request.args.get("page", 1)))
 
     try:
-        df = do_search(q, cat)
+        df = do_search(q, cat, branch)
     except Exception as exc:
         return f"<pre style='color:red;padding:20px'>Error loading data:\n{exc}</pre>", 500
 
-    full   = get_data()
-    active = full[~full["_sc"].isin(DONE_CODES)]
+    full = get_data()
+
+    # Apply branch filter to stat counts if branch selected
+    stat_df = full if (not branch or branch == "ALL") else full[full["_branch"] == branch]
+
+    active_df = stat_df[~stat_df["_sc"].isin(DONE_CODES | CANCEL_CODES)]
+
     counts = {
-        "all":     len(active),
-        "delayed": int((active["_age_days"] > 1).sum()),
-        "missing": int((active["_age_days"] > 7).sum()),
-        "issue":   int(active["_sc"].isin(ISSUE_CODES).sum()),
-        "done":    int(full["_sc"].isin(DONE_CODES).sum()),
+        "active":  len(active_df),
+        "po_only": int((stat_df["_facility"] == "Post Office").sum()),
+        "delayed": int(((active_df["_age_days"] > 1)).sum()),
+        "missing": int(((active_df["_age_days"] > 7)).sum()),
+        "issue":   int(active_df["_sc"].isin(ISSUE_CODES).sum()),
+        "done":    int(stat_df["_sc"].isin(DONE_CODES).sum()),
+        "cancel":  int(stat_df["_sc"].isin(CANCEL_CODES).sum()),
+        "all":     len(stat_df),
     }
 
-    cl, cc        = _cache_info()
-    table, pager  = _build_table(df, page)
+    # Build branch options
+    branches_in_data = sorted(full["_branch"].unique())
+    b_opts = ['<option value="ALL">🏢 All Branches</option>']
+    for b in branches_in_data:
+        if not b or b == "OTHER": continue
+        b_name = BRANCH_NAME_MAP.get(b, b)
+        sel = ' selected' if branch == b else ''
+        b_opts.append(f'<option value="{b}"{sel}>{b} - {b_name}</option>')
+    branch_options = "".join(b_opts)
 
-    cat_names = {"all":"All Active","delayed":"Delayed >1d","missing":"Missing >7d",
-                 "issue":"Issues","done":"Completed"}
-    if q or cat != "all":
-        rinfo = (
-            f'Found <strong>{len(df):,}</strong> orders'
-            + (f' matching &ldquo;<strong>{q}</strong>&rdquo;' if q else "")
-            + f' &rsaquo; <strong>{cat_names.get(cat, cat)}</strong>'
-        )
-    else:
-        rinfo = f'Showing <strong>{len(df):,}</strong> active orders in the last 14 days'
+    cl, cc        = _cache_info()
+    table, pager  = _build_table(df, page, cat, branch)
+
+    cat_names = {
+        "active": "Active Packages", "po_only": "Post Office Only (Excl. Agent/Showroom)",
+        "delayed": "Delayed >1d", "missing": "Missing >7d", "issue": "Issues",
+        "done": "Status 410 / Completed", "cancel": "Cancel / Returned", "all": "All Orders"
+    }
+
+    rinfo_parts = [f'Found <strong>{len(df):,}</strong> orders']
+    if q:
+        rinfo_parts.append(f'matching &ldquo;<strong>{q}</strong>&rdquo;')
+    if branch and branch != "ALL":
+        rinfo_parts.append(f'in Branch <strong>{branch} ({BRANCH_NAME_MAP.get(branch, branch)})</strong>')
+    rinfo_parts.append(f'&rsaquo; <strong>{cat_names.get(cat, cat)}</strong>')
+
+    rinfo = " ".join(rinfo_parts)
 
     def ac(c): return "active" if cat == c else ""
     stamp = datetime.utcnow().strftime("%d%m%Y")
 
     html = _render(
         HTML_TMPL,
-        q=q, cat=cat, page=page, stamp=stamp,
+        q=q, cat=cat, branch=branch, page=page, stamp=stamp,
         cl=cl, cc=cc,
-        cnt_all=f"{counts['all']:,}",      cnt_delayed=f"{counts['delayed']:,}",
-        cnt_missing=f"{counts['missing']:,}", cnt_issue=f"{counts['issue']:,}",
+        cnt_active=f"{counts['active']:,}",
+        cnt_po_only=f"{counts['po_only']:,}",
+        cnt_delayed=f"{counts['delayed']:,}",
+        cnt_missing=f"{counts['missing']:,}",
+        cnt_issue=f"{counts['issue']:,}",
         cnt_done=f"{counts['done']:,}",
-        a_all=ac("all"), a_delayed=ac("delayed"), a_missing=ac("missing"),
-        a_issue=ac("issue"), a_done=ac("done"),
+        cnt_cancel=f"{counts['cancel']:,}",
+        cnt_all=f"{counts['all']:,}",
+        a_active=ac("active"), a_po_only=ac("po_only"),
+        a_delayed=ac("delayed"), a_missing=ac("missing"),
+        a_issue=ac("issue"), a_done=ac("done"), a_cancel=ac("cancel"), a_all=ac("all"),
+        branch_options=branch_options,
         rinfo=rinfo, table=table, pager=pager,
     )
     return html, 200
@@ -593,15 +698,16 @@ def index():
 def api_export():
     if not _check_auth():
         return "Unauthorized", 401
-    q   = request.args.get("q", "").strip()
-    cat = request.args.get("cat", "all")
+    q      = request.args.get("q", "").strip()
+    cat    = request.args.get("cat", "active")
+    branch = request.args.get("branch", "ALL").strip().upper()
     try:
-        df = do_search(q, cat)
+        df = do_search(q, cat, branch)
     except Exception as exc:
         return str(exc), 500
     xlsx  = make_excel_bytes(df)
     stamp = datetime.utcnow().strftime("%d%m%Y_%H%M")
-    fname = f"orders_{cat}_{stamp}.xlsx"
+    fname = f"orders_{cat}_{branch}_{stamp}.xlsx"
     return Response(
         xlsx,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
