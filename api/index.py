@@ -365,11 +365,11 @@ def _build_table(df, page=1, cat="all", branch="", date_filter="today", sort_ord
         ("CREATED DATE",         "Created Date 📅"),
         ("STATUS CODE",          "Status Code"),
         ("_slabel",              "Status Description"),
+        ("CURRENT POST OFFICE",  "Current PO ⭐"),
         ("SENDER",               "Sender"),
         ("SENDER PHONE",         "Sender Phone"),
         ("RECEIVER",             "Receiver"),
         ("RECEIVER PHONE",       "Receiver Phone"),
-        ("CURRENT POST OFFICE",  "Current PO"),
         ("DELIVERY POST OFFICE", "Dest PO"),
         ("RECEIVE POST OFFICE",  "Origin PO"),
         ("_facility",            "Facility"),
@@ -385,6 +385,17 @@ def _build_table(df, page=1, cat="all", branch="", date_filter="today", sort_ord
         sc   = str(row.get("_sc", ""))
         bcls, bico = _badge(sc)
         age_cls = "age-ok" if age <= 1 else ("age-warn" if age <= 7 else "age-danger")
+
+        # Table row highlight class based on 3 manager categories
+        if sc == "306":
+            tr_cls = "tr-mega"
+        elif sc in DONE_CODES:
+            tr_cls = "tr-done"
+        elif sc in CANCEL_CODES:
+            tr_cls = "tr-cancel"
+        else:
+            tr_cls = "tr-pending"
+
         tds = []
         for col, _ in avail:
             val  = row.get(col, "")
@@ -394,6 +405,8 @@ def _build_table(df, page=1, cat="all", branch="", date_filter="today", sort_ord
             elif col == "_slabel":
                 label = STATUS_LABELS.get(sc, safe)
                 tds.append(f'<td><span class="badge b-{bcls}">{bico} {label}</span></td>')
+            elif col == "CURRENT POST OFFICE":
+                tds.append(f'<td><span class="badge-po">{safe}</span></td>')
             elif col == "_facility":
                 f_color = "#38bdf8" if safe == "Post Office" else ("#f59e0b" if safe == "Agent" else "#a78bfa")
                 tds.append(f'<td><span style="color:{f_color};font-size:11px;font-weight:600">{safe}</span></td>')
@@ -407,7 +420,7 @@ def _build_table(df, page=1, cat="all", branch="", date_filter="today", sort_ord
                 tds.append(f'<td class="mono">{safe}</td>')
             else:
                 tds.append(f'<td title="{safe}">{safe[:55]}</td>')
-        rows.append(f"<tr>{''.join(tds)}</tr>")
+        rows.append(f"<tr class='{tr_cls}'>{''.join(tds)}</tr>")
 
     table = (
         f'<div class="tbl-wrap"><table>'
@@ -538,7 +551,22 @@ th { padding:10px 12px; text-align:left; font-weight:600; color:var(--muted);
 td { padding:9px 12px; border-bottom:1px solid rgba(30,45,69,.5);
   white-space:nowrap; max-width:200px; overflow:hidden; text-overflow:ellipsis; }
 tr:last-child td { border-bottom:none; }
-tr:hover td { background:rgba(255,255,255,.02); }
+
+/* Table Row Highlights for the 3 Categories */
+tr.tr-mega { background:rgba(56,189,248,0.06); border-left:3px solid #38bdf8; }
+tr.tr-mega:hover td { background:rgba(56,189,248,0.12); }
+
+tr.tr-pending { background:rgba(245,158,11,0.04); border-left:3px solid #f59e0b; }
+tr.tr-pending:hover td { background:rgba(245,158,11,0.10); }
+
+tr.tr-done { background:rgba(34,197,94,0.06); border-left:3px solid #22c55e; }
+tr.tr-done:hover td { background:rgba(34,197,94,0.12); }
+
+tr.tr-cancel { background:rgba(239,68,68,0.05); border-left:3px solid #ef4444; }
+tr.tr-cancel:hover td { background:rgba(239,68,68,0.10); }
+
+.badge-po { background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:700; font-family:ui-monospace,monospace; padding:2px 7px; border-radius:4px; font-size:11.5px; }
+
 .mono { font-family:ui-monospace,monospace; font-size:11.5px; }
 
 .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:10.5px; font-weight:600; white-space:nowrap; }
