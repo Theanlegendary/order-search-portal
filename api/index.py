@@ -119,9 +119,13 @@ def _enrich(df):
     df = df.copy()
     if date_col in df.columns:
         parsed = pd.to_datetime(df[date_col], dayfirst=True, format="mixed", errors="coerce")
-        df["_age_days"] = ((now - parsed).dt.total_seconds() / 86400).fillna(0).clip(lower=0)
+        df["_parsed_date"] = parsed
+        df["_date_only"]   = parsed.dt.date
+        df["_age_days"]    = ((now - parsed).dt.total_seconds() / 86400).fillna(0).clip(lower=0)
     else:
-        df["_age_days"] = 0.0
+        df["_parsed_date"] = pd.NaT
+        df["_date_only"]   = None
+        df["_age_days"]    = 0.0
 
     if "CURRENT STATUS" in df.columns:
         sc = df["CURRENT STATUS"].astype(str).str.extract(r"(\d{3})")[0]
@@ -156,7 +160,7 @@ def get_data():
         return _cache["df"]
 
 
-def do_search(q, cat, branch=""):
+def do_search(q, cat, branch="", date_filter="all", sort_order="desc"):
     df = get_data()
     if df.empty:
         return df
@@ -165,11 +169,24 @@ def do_search(q, cat, branch=""):
     if branch and branch != "ALL":
         df = df[df["_branch"] == branch.upper()]
 
+    # Date range filter
+    today = (datetime.utcnow() + timedelta(hours=7)).date()
+    if date_filter == "today":
+        df = df[df["_date_only"] == today]
+    elif date_filter == "yesterday":
+        df = df[df["_date_only"] == (today - timedelta(days=1))]
+    elif date_filter == "last3":
+        df = df[df["_date_only"] >= (today - timedelta(days=2))]
+    elif date_filter == "last7":
+        df = df[df["_date_only"] >= (today - timedelta(days=6))]
+    elif re.match(r"^\d{4}-\d{2}-\d{2}$", date_filter):
+        target_d = pd.to_datetime(date_filter).date()
+        df = df[df["_date_only"] == target_d]
+
     # Category filters
     if cat == "active":
         df = df[~df["_sc"].isin(DONE_CODES | CANCEL_CODES)]
     elif cat == "po_only":
-        # Post Office ONLY (excludes Agent and Showroom)
         df = df[df["_facility"] == "Post Office"]
     elif cat == "missing":
         df = df[(df["_age_days"] > 7) & (~df["_sc"].isin(DONE_CODES))]
@@ -182,7 +199,7 @@ def do_search(q, cat, branch=""):
     elif cat == "cancel":
         df = df[df["_sc"].isin(CANCEL_CODES)]
     elif cat == "all":
-        pass  # All including Done and Cancelled
+        pass
 
     # Keyword search across all columns
     q = q.strip()
@@ -192,11 +209,16 @@ def do_search(q, cat, branch=""):
         )
         df = df[mask]
 
+    # Date sorting
+    ascending = (sort_order == "asc")
+    if "_parsed_date" in df.columns:
+        df = df.sort_values(by="_parsed_date", ascending=ascending, na_position="last")
+
     return df
 
 
 def make_excel_bytes(df):
-    drop = {"_age_days", "_sc", "_slabel", "_facility", "_branch"}
+    drop = {"_age_days", "_sc", "_slabel", "_facility", "_branch", "_parsed_date", "_date_only"}
     out  = df.drop(columns=[c for c in drop if c in df.columns], errors="ignore")
     buf  = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
@@ -234,13 +256,13 @@ def _render(tmpl, **kw):
 
 PAGE_SIZE = 250
 
-def _build_table(df, page=1, cat="all", branch=""):
+def _build_table(df, page=1, cat="all", branch="", date_filter="all", sort_order="desc"):
     if df.empty:
         return (
             '<div class="empty">'
             '<div style="font-size:48px;margin-bottom:14px">&#128269;</div>'
             '<p>No orders found.</p>'
-            '<p style="font-size:12px;color:#475569;margin-top:6px">Try a different keyword, branch, or category.</p>'
+            '<p style="font-size:12px;color:#475569;margin-top:6px">Try a different keyword, date range, branch, or category.</p>'
             '</div>'
         ), ""
 
@@ -252,7 +274,7 @@ def _build_table(df, page=1, cat="all", branch=""):
 
     COLS = [
         ("ORDER ID",             "Order ID"),
-        ("CREATED DATE",         "Created"),
+        ("CREATED DATE",         "Created Date 📅"),
         ("_slabel",              "Status"),
         ("SENDER",               "Sender"),
         ("SENDER PHONE",         "Sender Phone"),
@@ -288,6 +310,8 @@ def _build_table(df, page=1, cat="all", branch=""):
                 days = int(age); hrs = int((age - days) * 24)
                 txt  = f"{days}d" if days else f"{hrs}h"
                 tds.append(f'<td class="{age_cls}">{txt}</td>')
+            elif col == "CREATED DATE":
+                tds.append(f'<td style="color:#60a5fa;font-weight:500">{safe}</td>')
             elif col == "ORDER ID":
                 tds.append(f'<td class="mono">{safe}</td>')
             else:
@@ -305,7 +329,7 @@ def _build_table(df, page=1, cat="all", branch=""):
     pager = []
     for p in range(1, total_pages + 1):
         cls = ' class="active"' if p == page else ""
-        pager.append(f'<a{cls} href="/?q={q_p}&cat={cat}&branch={branch}&page={p}">{p}</a>')
+        pager.append(f'<a{cls} href="/?q={q_p}&cat={cat}&branch={branch}&date={date_filter}&sort={sort_order}&page={p}">{p}</a>')
     pager.append(f'<span class="pg-info">Rows {start+1}&#8211;{min(start+PAGE_SIZE,total):,} of {total:,}</span>')
     return table, "".join(pager)
 
@@ -495,8 +519,17 @@ tr:hover td { background:rgba(255,255,255,.02); }
           autocomplete="off" autofocus>
       </div>
 
+      <select name="date" id="dateSelect" class="bselect" onchange="this.form.submit(); showLoading();">
+        ~~date_options~~
+      </select>
+
       <select name="branch" id="branchSelect" class="bselect" onchange="this.form.submit(); showLoading();">
         ~~branch_options~~
+      </select>
+
+      <select name="sort" id="sortSelect" class="bselect" onchange="this.form.submit(); showLoading();">
+        <option value="desc" ~~sort_desc_sel~~>📅 Newest First</option>
+        <option value="asc" ~~sort_asc_sel~~>📅 Oldest First</option>
       </select>
 
       <button type="submit" class="btn btn-s">Search</button>
@@ -514,11 +547,11 @@ tr:hover td { background:rgba(255,255,255,.02); }
 </div>
 
 <script>
-var _cat="~~cat~~", _q="~~q~~", _branch="~~branch~~";
+var _cat="~~cat~~", _q="~~q~~", _branch="~~branch~~", _date="~~date~~", _sort="~~sort~~";
 function gocat(c) {
   _cat=c; document.getElementById('catIn').value=c;
   showLoading();
-  window.location='/?cat='+c+(_branch?'&branch='+encodeURIComponent(_branch):'')+(_q?'&q='+encodeURIComponent(_q):'');
+  window.location='/?cat='+c+(_branch?'&branch='+encodeURIComponent(_branch):'')+(_date?'&date='+encodeURIComponent(_date):'')+(_sort?'&sort='+encodeURIComponent(_sort):'')+(_q?'&q='+encodeURIComponent(_q):'');
 }
 function showLoading() { document.getElementById('ld').classList.add('on'); }
 function clearAll() { window.location='/?cat=active'; }
@@ -528,7 +561,7 @@ function forceRefresh() {
 }
 function dlExcel() {
   showLoading();
-  var url='/api/export?cat='+_cat+(_branch?'&branch='+encodeURIComponent(_branch):'')+(_q?'&q='+encodeURIComponent(_q):'');
+  var url='/api/export?cat='+_cat+(_branch?'&branch='+encodeURIComponent(_branch):'')+(_date?'&date='+encodeURIComponent(_date):'')+(_sort?'&sort='+encodeURIComponent(_sort):'')+(_q?'&q='+encodeURIComponent(_q):'');
   fetch(url).then(function(r){ return r.blob(); }).then(function(b){
     var a=document.createElement('a');
     a.href=URL.createObjectURL(b);
@@ -614,13 +647,15 @@ def index():
     if not _check_auth():
         return redirect("/auth")
 
-    q      = request.args.get("q", "").strip()
-    cat    = request.args.get("cat", "active")
-    branch = request.args.get("branch", "ALL").strip().upper()
-    page   = max(1, int(request.args.get("page", 1)))
+    q           = request.args.get("q", "").strip()
+    cat         = request.args.get("cat", "active")
+    branch      = request.args.get("branch", "ALL").strip().upper()
+    date_filter = request.args.get("date", "all").strip()
+    sort_order  = request.args.get("sort", "desc").strip().lower()
+    page        = max(1, int(request.args.get("page", 1)))
 
     try:
-        df = do_search(q, cat, branch)
+        df = do_search(q, cat, branch, date_filter, sort_order)
     except Exception as exc:
         return f"<pre style='color:red;padding:20px'>Error loading data:\n{exc}</pre>", 500
 
@@ -628,6 +663,19 @@ def index():
 
     # Apply branch filter to stat counts if branch selected
     stat_df = full if (not branch or branch == "ALL") else full[full["_branch"] == branch]
+
+    # Apply date filter to stat counts if date selected
+    today = (datetime.utcnow() + timedelta(hours=7)).date()
+    if date_filter == "today":
+        stat_df = stat_df[stat_df["_date_only"] == today]
+    elif date_filter == "yesterday":
+        stat_df = stat_df[stat_df["_date_only"] == (today - timedelta(days=1))]
+    elif date_filter == "last3":
+        stat_df = stat_df[stat_df["_date_only"] >= (today - timedelta(days=2))]
+    elif date_filter == "last7":
+        stat_df = stat_df[stat_df["_date_only"] >= (today - timedelta(days=6))]
+    elif re.match(r"^\d{4}-\d{2}-\d{2}$", date_filter):
+        stat_df = stat_df[stat_df["_date_only"] == pd.to_datetime(date_filter).date()]
 
     active_df = stat_df[~stat_df["_sc"].isin(DONE_CODES | CANCEL_CODES)]
 
@@ -652,8 +700,27 @@ def index():
         b_opts.append(f'<option value="{b}"{sel}>{b} - {b_name}</option>')
     branch_options = "".join(b_opts)
 
+    # Build date options
+    d_opts = [
+        ('<option value="all"' + (' selected' if date_filter == 'all' else '') + '>📅 All 14 Days</option>'),
+        ('<option value="today"' + (' selected' if date_filter == 'today' else '') + '>📅 Today (' + today.strftime("%d/%m") + ')</option>'),
+        ('<option value="yesterday"' + (' selected' if date_filter == 'yesterday' else '') + '>📅 Yesterday (' + (today - timedelta(days=1)).strftime("%d/%m") + ')</option>'),
+        ('<option value="last3"' + (' selected' if date_filter == 'last3' else '') + '>📅 Last 3 Days</option>'),
+        ('<option value="last7"' + (' selected' if date_filter == 'last7' else '') + '>📅 Last 7 Days</option>'),
+    ]
+
+    # Add available dates dynamically
+    unique_dates = sorted([d for d in full["_date_only"].dropna().unique() if d], reverse=True)
+    d_opts.append('<optgroup label="Specific Dates">')
+    for ud in unique_dates:
+        ud_str = ud.strftime("%Y-%m-%d")
+        sel = ' selected' if date_filter == ud_str else ''
+        d_opts.append(f'<option value="{ud_str}"{sel}>{ud.strftime("%d/%m/%Y")}</option>')
+    d_opts.append('</optgroup>')
+    date_options = "".join(d_opts)
+
     cl, cc        = _cache_info()
-    table, pager  = _build_table(df, page, cat, branch)
+    table, pager  = _build_table(df, page, cat, branch, date_filter, sort_order)
 
     cat_names = {
         "active": "Active Packages", "po_only": "Post Office Only (Excl. Agent/Showroom)",
@@ -664,9 +731,12 @@ def index():
     rinfo_parts = [f'Found <strong>{len(df):,}</strong> orders']
     if q:
         rinfo_parts.append(f'matching &ldquo;<strong>{q}</strong>&rdquo;')
+    if date_filter != "all":
+        rinfo_parts.append(f'on <strong>{date_filter}</strong>')
     if branch and branch != "ALL":
         rinfo_parts.append(f'in Branch <strong>{branch} ({BRANCH_NAME_MAP.get(branch, branch)})</strong>')
     rinfo_parts.append(f'&rsaquo; <strong>{cat_names.get(cat, cat)}</strong>')
+    rinfo_parts.append(f'({ "Newest First" if sort_order == "desc" else "Oldest First" })')
 
     rinfo = " ".join(rinfo_parts)
 
@@ -675,7 +745,7 @@ def index():
 
     html = _render(
         HTML_TMPL,
-        q=q, cat=cat, branch=branch, page=page, stamp=stamp,
+        q=q, cat=cat, branch=branch, date=date_filter, sort=sort_order, page=page, stamp=stamp,
         cl=cl, cc=cc,
         cnt_active=f"{counts['active']:,}",
         cnt_po_only=f"{counts['po_only']:,}",
@@ -689,6 +759,9 @@ def index():
         a_delayed=ac("delayed"), a_missing=ac("missing"),
         a_issue=ac("issue"), a_done=ac("done"), a_cancel=ac("cancel"), a_all=ac("all"),
         branch_options=branch_options,
+        date_options=date_options,
+        sort_desc_sel=('selected' if sort_order == 'desc' else ''),
+        sort_asc_sel=('selected' if sort_order == 'asc' else ''),
         rinfo=rinfo, table=table, pager=pager,
     )
     return html, 200
@@ -698,11 +771,13 @@ def index():
 def api_export():
     if not _check_auth():
         return "Unauthorized", 401
-    q      = request.args.get("q", "").strip()
-    cat    = request.args.get("cat", "active")
-    branch = request.args.get("branch", "ALL").strip().upper()
+    q           = request.args.get("q", "").strip()
+    cat         = request.args.get("cat", "active")
+    branch      = request.args.get("branch", "ALL").strip().upper()
+    date_filter = request.args.get("date", "all").strip()
+    sort_order  = request.args.get("sort", "desc").strip().lower()
     try:
-        df = do_search(q, cat, branch)
+        df = do_search(q, cat, branch, date_filter, sort_order)
     except Exception as exc:
         return str(exc), 500
     xlsx  = make_excel_bytes(df)
