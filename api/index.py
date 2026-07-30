@@ -552,20 +552,24 @@ td { padding:9px 12px; border-bottom:1px solid rgba(30,45,69,.5);
   white-space:nowrap; max-width:200px; overflow:hidden; text-overflow:ellipsis; }
 tr:last-child td { border-bottom:none; }
 
-/* Table Row Highlights for the 3 Categories */
-tr.tr-mega { background:rgba(56,189,248,0.06); border-left:3px solid #38bdf8; }
-tr.tr-mega:hover td { background:rgba(56,189,248,0.12); }
+/* Table Row Highlights for the 3 Categories (Vivid & 100% Visible) */
+tr.tr-mega td { background: rgba(56,189,248,0.15) !important; border-bottom: 1px solid rgba(56,189,248,0.3) !important; }
+tr.tr-mega td:first-child { border-left: 5px solid #38bdf8 !important; }
+tr.tr-mega:hover td { background: rgba(56,189,248,0.28) !important; }
 
-tr.tr-pending { background:rgba(245,158,11,0.04); border-left:3px solid #f59e0b; }
-tr.tr-pending:hover td { background:rgba(245,158,11,0.10); }
+tr.tr-pending td { background: rgba(245,158,11,0.10) !important; border-bottom: 1px solid rgba(245,158,11,0.25) !important; }
+tr.tr-pending td:first-child { border-left: 5px solid #f59e0b !important; }
+tr.tr-pending:hover td { background: rgba(245,158,11,0.20) !important; }
 
-tr.tr-done { background:rgba(34,197,94,0.06); border-left:3px solid #22c55e; }
-tr.tr-done:hover td { background:rgba(34,197,94,0.12); }
+tr.tr-done td { background: rgba(34,197,94,0.15) !important; border-bottom: 1px solid rgba(34,197,94,0.3) !important; }
+tr.tr-done td:first-child { border-left: 5px solid #22c55e !important; }
+tr.tr-done:hover td { background: rgba(34,197,94,0.28) !important; }
 
-tr.tr-cancel { background:rgba(239,68,68,0.05); border-left:3px solid #ef4444; }
-tr.tr-cancel:hover td { background:rgba(239,68,68,0.10); }
+tr.tr-cancel td { background: rgba(239,68,68,0.10) !important; border-bottom: 1px solid rgba(239,68,68,0.25) !important; }
+tr.tr-cancel td:first-child { border-left: 5px solid #ef4444 !important; }
+tr.tr-cancel:hover td { background: rgba(239,68,68,0.20) !important; }
 
-.badge-po { background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:700; font-family:ui-monospace,monospace; padding:2px 7px; border-radius:4px; font-size:11.5px; }
+.badge-po { background: rgba(56,189,248,0.25); color: #38bdf8; border: 1.5px solid #38bdf8; font-weight:700; font-family:ui-monospace,monospace; padding: 3px 8px; border-radius: 6px; font-size:12px; }
 
 .mono { font-family:ui-monospace,monospace; font-size:11.5px; }
 
