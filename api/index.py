@@ -187,7 +187,9 @@ def do_search(q, cat, branch="", date_filter="today", sort_order="desc"):
         df = df[df["_date_only"] == target_d]
 
     # Category filters
-    if cat == "active":
+    if cat == "mega":
+        df = df[df["_sc"] == "306"]
+    elif cat == "active":
         df = df[~df["_sc"].isin(DONE_CODES | CANCEL_CODES)]
     elif cat == "po_only":
         df = df[df["_facility"] == "Post Office"]
@@ -295,9 +297,9 @@ def generate_manager_report_text(manager_name="Tran Viet", branch_code="PNP", po
     lines = [
         f"Dear {manager_name}",
         f"Daily Report ({date_label}){br_hdr}{search_hdr}\n",
-        f"Report bill from Mega: {cnt_mega}",
-        f"Report bill pending: {cnt_pending}",
-        f"Report bill Success: {cnt_success}"
+        f"📦 Report bill from Mega: {cnt_mega}",
+        f"⏳ Report bill pending: {cnt_pending}",
+        f"✅ Report bill Success: {cnt_success}"
     ]
 
     return "\n".join(lines)
@@ -462,13 +464,33 @@ body { font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:var
 
 .page { max-width:1700px; margin:0 auto; padding:22px 28px; }
 
-.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:22px; }
+/* Highlighted 3 Manager Report Stat Cards */
+.mgr-highlight-row { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:16px; }
+.mgr-card { background:var(--surface); border-radius:12px; padding:16px 20px; cursor:pointer; transition:.2s; user-select:none; position:relative; overflow:hidden; }
+.mgr-card:hover { transform:translateY(-2px); box-shadow:0 8px 30px rgba(0,0,0,.4); }
+
+.mgr-card-mega { border:2px solid #38bdf8; background:linear-gradient(135deg,rgba(56,189,248,.12) 0%,rgba(15,24,41,.9) 100%); }
+.mgr-card-mega.active { background:rgba(56,189,248,.25); box-shadow:0 0 20px rgba(56,189,248,.3); }
+.mgr-card-mega .val { color:#38bdf8; }
+
+.mgr-card-pending { border:2px solid #f59e0b; background:linear-gradient(135deg,rgba(245,158,11,.12) 0%,rgba(15,24,41,.9) 100%); }
+.mgr-card-pending.active { background:rgba(245,158,11,.25); box-shadow:0 0 20px rgba(245,158,11,.3); }
+.mgr-card-pending .val { color:#f59e0b; }
+
+.mgr-card-success { border:2px solid #22c55e; background:linear-gradient(135deg,rgba(34,197,94,.12) 0%,rgba(15,24,41,.9) 100%); }
+.mgr-card-success.active { background:rgba(34,197,94,.25); box-shadow:0 0 20px rgba(34,197,94,.3); }
+.mgr-card-success .val { color:#22c55e; }
+
+.mgr-card .lbl { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px; color:#cbd5e1; display:flex; align-items:center; gap:6px; }
+.mgr-card .val { font-size:32px; font-weight:800; line-height:1; }
+
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-bottom:22px; }
 .sc { background:var(--surface); border:1px solid var(--border); border-radius:10px;
-  padding:14px 16px; cursor:pointer; transition:.2s; user-select:none; }
+  padding:12px 14px; cursor:pointer; transition:.2s; user-select:none; }
 .sc:hover { border-color:var(--accent); transform:translateY(-1px); box-shadow:0 4px 20px rgba(0,0,0,.3); }
 .sc.active { border-color:var(--accent); background:rgba(79,142,247,.1); }
-.sc .n { font-size:26px; font-weight:700; line-height:1; margin-bottom:5px; }
-.sc .l { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+.sc .n { font-size:22px; font-weight:700; line-height:1; margin-bottom:4px; }
+.sc .l { font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
 .sc-all .n     { color:var(--text); }
 .sc-active .n  { color:var(--accent); }
 .sc-po .n      { color:var(--a2); }
@@ -560,6 +582,7 @@ tr:hover td { background:rgba(255,255,255,.02); }
 @media(max-width:700px) {
   .page { padding:14px; }
   .hdr { padding:12px 14px; }
+  .mgr-highlight-row { grid-template-columns:1fr; }
   .stats { grid-template-columns:repeat(2,1fr); }
 }
 </style>
@@ -603,10 +626,23 @@ tr:hover td { background:rgba(255,255,255,.02); }
 
 <div class="page">
 
-  <div class="stats">
-    <div class="sc sc-active ~~a_active~~" onclick="gocat('active')">
-      <div class="n">~~cnt_active~~</div><div class="l">&#128230; Active Pending</div>
+  <!-- Highlighted 3 Manager Report Stat Cards -->
+  <div class="mgr-highlight-row">
+    <div class="mgr-card mgr-card-mega ~~a_mega~~" onclick="gocat('mega')">
+      <div class="lbl">📦 Report Bill From Mega</div>
+      <div class="val">~~cnt_mega~~</div>
     </div>
+    <div class="mgr-card mgr-card-pending ~~a_active~~" onclick="gocat('active')">
+      <div class="lbl">⏳ Report Bill Pending</div>
+      <div class="val">~~cnt_active~~</div>
+    </div>
+    <div class="mgr-card mgr-card-success ~~a_done~~" onclick="gocat('done')">
+      <div class="lbl">✅ Report Bill Success</div>
+      <div class="val">~~cnt_done~~</div>
+    </div>
+  </div>
+
+  <div class="stats">
     <div class="sc sc-po ~~a_po_only~~" onclick="gocat('po_only')">
       <div class="n">~~cnt_po_only~~</div><div class="l">&#127963; PO Only</div>
     </div>
@@ -618,9 +654,6 @@ tr:hover td { background:rgba(255,255,255,.02); }
     </div>
     <div class="sc sc-issue ~~a_issue~~" onclick="gocat('issue')">
       <div class="n">~~cnt_issue~~</div><div class="l">&#9888; Issues</div>
-    </div>
-    <div class="sc sc-done ~~a_done~~" onclick="gocat('done')">
-      <div class="n">~~cnt_done~~</div><div class="l">&#10003; 410 Complete</div>
     </div>
     <div class="sc sc-cancel ~~a_cancel~~" onclick="gocat('cancel')">
       <div class="n">~~cnt_cancel~~</div><div class="l">&#8617; Cancel/Return</div>
@@ -838,6 +871,7 @@ def index():
     active_df = stat_df[~stat_df["_sc"].isin(DONE_CODES | CANCEL_CODES)]
 
     counts = {
+        "mega":    int((stat_df["_sc"] == "306").sum()),
         "active":  len(active_df),
         "po_only": int((stat_df["_facility"] == "Post Office").sum()),
         "delayed": int(((active_df["_age_days"] > 1)).sum()),
@@ -881,9 +915,10 @@ def index():
     table, pager  = _build_table(df, page, cat, branch, date_filter, sort_order)
 
     cat_names = {
-        "active": "Active Packages", "po_only": "Post Office Only (Excl. Agent/Showroom)",
+        "mega": "Report Bill From Mega (306)",
+        "active": "Active Packages (Pending)", "po_only": "Post Office Only (Excl. Agent/Showroom)",
         "delayed": "Delayed >1d", "missing": "Missing >7d", "issue": "Issues",
-        "done": "Status 410 / Completed", "cancel": "Cancel / Returned", "all": "All Orders"
+        "done": "Status 410 / Completed (Success)", "cancel": "Cancel / Returned", "all": "All Orders"
     }
 
     rinfo_parts = [f'Found <strong>{len(df):,}</strong> orders']
@@ -905,6 +940,7 @@ def index():
         HTML_TMPL,
         q=q, cat=cat, branch=branch, date=date_filter, sort=sort_order, page=page, stamp=stamp,
         cl=cl, cc=cc,
+        cnt_mega=f"{counts['mega']:,}",
         cnt_active=f"{counts['active']:,}",
         cnt_po_only=f"{counts['po_only']:,}",
         cnt_delayed=f"{counts['delayed']:,}",
@@ -913,7 +949,7 @@ def index():
         cnt_done=f"{counts['done']:,}",
         cnt_cancel=f"{counts['cancel']:,}",
         cnt_all=f"{counts['all']:,}",
-        a_active=ac("active"), a_po_only=ac("po_only"),
+        a_mega=ac("mega"), a_active=ac("active"), a_po_only=ac("po_only"),
         a_delayed=ac("delayed"), a_missing=ac("missing"),
         a_issue=ac("issue"), a_done=ac("done"), a_cancel=ac("cancel"), a_all=ac("all"),
         branch_options=branch_options,
