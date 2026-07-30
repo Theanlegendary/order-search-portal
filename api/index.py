@@ -283,7 +283,7 @@ def generate_manager_report_text(manager_name="Tran Viet", branch_code="PNP", po
         if is_success: cnt_success += 1
 
     br_hdr = f" - Branch: {branch_prefix}" if branch_prefix else ""
-    search_hdr = f" (Search: '{q}')" if q else ""
+    search_hdr = f" (Current PO: {q})" if q else ""
 
     lines = [
         f"Dear {manager_name}",
