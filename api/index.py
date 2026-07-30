@@ -129,11 +129,13 @@ def _enrich(df):
 
     if "CURRENT STATUS" in df.columns:
         sc = df["CURRENT STATUS"].astype(str).str.extract(r"(\d{3})")[0]
-        df["_sc"]     = sc.fillna("")
-        df["_slabel"] = sc.map(STATUS_LABELS).fillna(sc)
+        df["STATUS CODE"] = sc.fillna("")
+        df["_sc"]         = sc.fillna("")
+        df["_slabel"]     = sc.map(STATUS_LABELS).fillna(sc)
     else:
-        df["_sc"] = ""
-        df["_slabel"] = ""
+        df["STATUS CODE"] = ""
+        df["_sc"]         = ""
+        df["_slabel"]     = ""
 
     po_col = "CURRENT POST OFFICE" if "CURRENT POST OFFICE" in df.columns else ("DELIVERY POST OFFICE" if "DELIVERY POST OFFICE" in df.columns else "RECEIVE POST OFFICE")
     if po_col in df.columns:
@@ -198,20 +200,6 @@ def do_search(q, cat, branch="", date_filter="all", sort_order="desc"):
         df = df[df["_sc"].isin(DONE_CODES)]
     elif cat == "cancel":
         df = df[df["_sc"].isin(CANCEL_CODES)]
-    elif cat == "pickup":
-        df = df[df["_sc"].isin({"110", "120", "200"})]
-    elif cat == "delivery":
-        df = df[df["_sc"].isin({"401", "402", "420", "430", "460", "400"})]
-    elif cat == "transit":
-        df = df[df["_sc"].isin({"210", "230", "300", "302", "310", "311"})]
-    elif cat == "branch":
-        df = df[df["_sc"].isin({"306", "309", "400", "472", "480"})]
-    elif cat == "shipped":
-        df = df[df["_sc"].isin({"410"})]
-    elif cat == "cancelled":
-        df = df[df["_sc"].isin({"201"})]
-    elif cat == "returned":
-        df = df[df["_sc"].isin({"500", "510", "511", "512", "520", "540"})]
     elif cat == "all":
         pass
 
@@ -289,7 +277,8 @@ def _build_table(df, page=1, cat="all", branch="", date_filter="all", sort_order
     COLS = [
         ("ORDER ID",             "Order ID"),
         ("CREATED DATE",         "Created Date 📅"),
-        ("_slabel",              "Status"),
+        ("STATUS CODE",          "Status Code"),
+        ("_slabel",              "Status Description"),
         ("SENDER",               "Sender"),
         ("SENDER PHONE",         "Sender Phone"),
         ("RECEIVER",             "Receiver"),
@@ -314,7 +303,9 @@ def _build_table(df, page=1, cat="all", branch="", date_filter="all", sort_order
         for col, _ in avail:
             val  = row.get(col, "")
             safe = "" if str(val) in ("nan", "None", "") else str(val)
-            if col == "_slabel":
+            if col == "STATUS CODE":
+                tds.append(f'<td><span class="badge b-{bcls}" style="font-family:monospace;font-size:12px;font-weight:700">{sc or safe or "N/A"}</span></td>')
+            elif col == "_slabel":
                 label = STATUS_LABELS.get(sc, safe)
                 tds.append(f'<td><span class="badge b-{bcls}">{bico} {label}</span></td>')
             elif col == "_facility":
@@ -386,6 +377,13 @@ body { font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:var
 .rbtn:hover { color:var(--text); border-color:var(--accent); }
 
 .page { max-width:1700px; margin:0 auto; padding:22px 28px; }
+
+/* Guide Box */
+.guide-box { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-bottom:18px; font-size:12.5px; }
+.guide-title { font-weight:700; color:#60a5fa; margin-bottom:8px; display:flex; align-items:center; gap:8px; cursor:pointer; }
+.guide-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin-top:8px; }
+.g-item { background:var(--s2); border:1px solid var(--border); border-radius:6px; padding:8px 12px; }
+.g-code { font-family:monospace; font-weight:700; color:#38bdf8; font-size:13px; margin-right:6px; }
 
 .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:22px; }
 .sc { background:var(--surface); border:1px solid var(--border); border-radius:10px;
@@ -496,9 +494,25 @@ tr:hover td { background:rgba(255,255,255,.02); }
 
 <div class="page">
 
+  <!-- Manager Guide -->
+  <div class="guide-box">
+    <div class="guide-title" onclick="toggleGuide()">
+      <span>📖 Manager Cheat Sheet & Status Guide</span>
+      <span style="font-size:11px;color:#64748b;margin-left:auto">(Click to toggle explanation)</span>
+    </div>
+    <div class="guide-grid" id="guideGrid">
+      <div class="g-item"><span class="g-code">410</span><strong>Completed / Delivered</strong>: Package successfully delivered to customer.</div>
+      <div class="g-item"><span class="g-code">306</span><strong>At Branch / PO</strong>: Package arrived at local post office branch.</div>
+      <div class="g-item"><span class="g-code">401</span><strong>Out for Delivery</strong>: Driver is actively delivering package.</div>
+      <div class="g-item"><span class="g-code">420</span><strong>Notify Customer</strong>: Issue contacting customer (no answer / wrong phone).</div>
+      <div class="g-item"><span class="g-code">520</span><strong>Return Completed</strong>: Package returned back to sender/seller.</div>
+      <div class="g-item"><span class="g-code">PO Only</span><strong>Post Office Only</strong>: Sitting in official POs (excludes Agents & Showrooms).</div>
+    </div>
+  </div>
+
   <div class="stats">
     <div class="sc sc-active ~~a_active~~" onclick="gocat('active')">
-      <div class="n">~~cnt_active~~</div><div class="l">&#128230; Active</div>
+      <div class="n">~~cnt_active~~</div><div class="l">&#128230; Active Pending</div>
     </div>
     <div class="sc sc-po ~~a_po_only~~" onclick="gocat('po_only')">
       <div class="n">~~cnt_po_only~~</div><div class="l">&#127963; PO Only</div>
@@ -513,7 +527,7 @@ tr:hover td { background:rgba(255,255,255,.02); }
       <div class="n">~~cnt_issue~~</div><div class="l">&#9888; Issues</div>
     </div>
     <div class="sc sc-done ~~a_done~~" onclick="gocat('done')">
-      <div class="n">~~cnt_done~~</div><div class="l">&#10003; 410 Done</div>
+      <div class="n">~~cnt_done~~</div><div class="l">&#10003; 410 Complete</div>
     </div>
     <div class="sc sc-cancel ~~a_cancel~~" onclick="gocat('cancel')">
       <div class="n">~~cnt_cancel~~</div><div class="l">&#8617; Cancel/Return</div>
@@ -523,26 +537,13 @@ tr:hover td { background:rgba(255,255,255,.02); }
     </div>
   </div>
 
-  <!-- Stage filter buttons -->
-  <div class="srow" style="gap:8px;margin-bottom:14px">
-    <span style="font-size:11px;color:var(--muted);font-weight:600;padding-right:4px">Stage:</span>
-    <button type="button" class="btn ~~f_pickup~~" onclick="gocat('pickup')" style="padding:7px 14px;font-size:12px">&#128230; Pickup</button>
-    <button type="button" class="btn ~~f_delivery~~" onclick="gocat('delivery')" style="padding:7px 14px;font-size:12px">&#128666; Under Delivery</button>
-    <button type="button" class="btn ~~f_transit~~" onclick="gocat('transit')" style="padding:7px 14px;font-size:12px">&#8635; Transit</button>
-    <button type="button" class="btn ~~f_branch~~" onclick="gocat('branch')" style="padding:7px 14px;font-size:12px">&#127963; At Branch</button>
-    <button type="button" class="btn ~~f_shipped~~" onclick="gocat('shipped')" style="padding:7px 14px;font-size:12px">&#10004; Shipped</button>
-    <button type="button" class="btn ~~f_cancelled~~" onclick="gocat('cancelled')" style="padding:7px 14px;font-size:12px">&#10060; Cancelled</button>
-    <button type="button" class="btn ~~f_returned~~" onclick="gocat('returned')" style="padding:7px 14px;font-size:12px">&#8617; Returned</button>
-    <button type="button" class="btn ~~f_all_status~~" onclick="gocat('all')" style="padding:7px 14px;font-size:12px">&#128203; All Status</button>
-  </div>
-
   <form method="get" action="/" onsubmit="showLoading()">
     <input type="hidden" name="cat" id="catIn" value="~~cat~~">
     <div class="srow">
       <div class="sinput-wrap">
         <span class="ico">&#128269;</span>
         <input type="text" name="q" id="qIn" value="~~q~~"
-          placeholder="Search order ID &bull; phone &bull; sender &bull; receiver &bull; post office &bull; note &hellip;"
+          placeholder="Search order ID &bull; phone &bull; status code (410, 306, 401) &bull; sender &bull; receiver &bull; post office &bull; note &hellip;"
           autocomplete="off" autofocus>
       </div>
 
@@ -575,6 +576,10 @@ tr:hover td { background:rgba(255,255,255,.02); }
 
 <script>
 var _cat="~~cat~~", _q="~~q~~", _branch="~~branch~~", _date="~~date~~", _sort="~~sort~~";
+function toggleGuide() {
+  var g = document.getElementById('guideGrid');
+  g.style.display = (g.style.display === 'none') ? 'grid' : 'none';
+}
 function gocat(c) {
   _cat=c; document.getElementById('catIn').value=c;
   showLoading();
@@ -785,14 +790,6 @@ def index():
         a_active=ac("active"), a_po_only=ac("po_only"),
         a_delayed=ac("delayed"), a_missing=ac("missing"),
         a_issue=ac("issue"), a_done=ac("done"), a_cancel=ac("cancel"), a_all=ac("all"),
-        f_pickup=("btn-s" if cat == "pickup" else "btn-c"),
-        f_delivery=("btn-s" if cat == "delivery" else "btn-c"),
-        f_transit=("btn-s" if cat == "transit" else "btn-c"),
-        f_branch=("btn-s" if cat == "branch" else "btn-c"),
-        f_shipped=("btn-s" if cat == "shipped" else "btn-c"),
-        f_cancelled=("btn-s" if cat == "cancelled" else "btn-c"),
-        f_returned=("btn-s" if cat == "returned" else "btn-c"),
-        f_all_status=("btn-s" if cat == "all" else "btn-c"),
         branch_options=branch_options,
         date_options=date_options,
         sort_desc_sel=('selected' if sort_order == 'desc' else ''),
