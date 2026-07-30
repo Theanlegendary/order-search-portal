@@ -204,13 +204,17 @@ def do_search(q, cat, branch="", date_filter="today", sort_order="desc"):
     elif cat == "all":
         pass
 
-    # Keyword search across all columns
+    # Keyword search across all columns (Strict CURRENT POST OFFICE match for PO handles like PNPP003)
     q = q.strip()
     if q:
-        mask = df.astype(str).apply(
-            lambda row: row.str.contains(q, case=False, na=False, regex=False).any(), axis=1
-        )
-        df = df[mask]
+        po_col = "CURRENT POST OFFICE" if "CURRENT POST OFFICE" in df.columns else "DELIVERY POST OFFICE"
+        if re.match(r"^[A-Z]{3}[PSA]\d+$", q.upper()):
+            df = df[df[po_col].astype(str).str.upper() == q.upper()]
+        else:
+            mask = df.astype(str).apply(
+                lambda row: row.str.contains(q, case=False, na=False, regex=False).any(), axis=1
+            )
+            df = df[mask]
 
     # Date sorting
     ascending = (sort_order == "asc")
@@ -252,13 +256,16 @@ def generate_manager_report_text(manager_name="Tran Viet", branch_code="PNP", po
     else:
         date_label = "All 14 Days"
 
-    # Filter Keyword Search if requested
+    # Filter Keyword Search if requested (Strict CURRENT POST OFFICE match for PO handles like PNPP003)
     q = q.strip()
     if q:
-        mask = branch_df.astype(str).apply(
-            lambda row: row.str.contains(q, case=False, na=False, regex=False).any(), axis=1
-        )
-        branch_df = branch_df[mask]
+        if re.match(r"^[A-Z]{3}[PSA]\d+$", q.upper()):
+            branch_df = branch_df[branch_df[po_col].astype(str).str.upper() == q.upper()]
+        else:
+            mask = branch_df.astype(str).apply(
+                lambda row: row.str.contains(q, case=False, na=False, regex=False).any(), axis=1
+            )
+            branch_df = branch_df[mask]
 
     # Filter PO Only if requested
     if po_only_filter:
